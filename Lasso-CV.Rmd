@@ -1,0 +1,140 @@
+---
+title: 'Homework 3 ## 452'
+author: "Alba Valdivia Plummer"
+date: "2023-01-23"
+output: html_document
+---
+
+### Question 1 
+## 1. How would you choose a sample subset (such as missing value, nulls, empty columns) of this dataset? What criteria would you consider when selecting a training subset from the above dataset (such as balanced distribution between training and test for the treated observations) ?
+```{r}
+heart <- read.csv("/Users/albavaldivia/Downloads/heart-2.csv")
+```
+
+```{r}
+print("Before performing cross-validation, it's essential to ensure that the data is shuffled to avoid any bias and introduce randomization to the sample subsets. I'd also reduce dimensionality for columns where all its values are null, as they don't provide any information. And once removed all columns with values null, I remove all rows with null values, so we have a dataset free of null values.")
+```
+## 2. Randomly split the dataset into test and training sets using 80% observations as training set. Fit a simple linear regression model (full model) to predict the heart attack probability and test your model against the test set.  Explain your model and obtain the R^2 for the predictions of the test data set (i.e., a true OOS R^2).
+
+#In the following code, we first clean the dataset (remove columns where all values /almost all values are NA and remaining rows with NA) and split the data randomly in training (80%) and testing (20%)
+```{r}
+df <- heart[,colSums(is.na(heart))<nrow(heart)]
+df2 <- subset(df, select = -c(wrist_dim))
+df3 <- na.omit(df2)
+set.seed(1)
+row.number <- sample(1:nrow(df3), 0.8*nrow(df3))
+train = df3[row.number,]
+test = df3[-row.number,]
+```
+
+#Linear regression on full model
+```{r}
+dflm <- lm(formula = heart_attack~., data=df3)
+summary(dflm)
+```
+
+#Linear regression on trainning data
+```{r}
+dflmt <- lm(formula = heart_attack~., data=train)
+summary(dflmt)
+```
+
+#Linear regression on testing data (true OOS R^2)
+```{r}
+library(MLmetrics)
+dflm <- lm(formula = heart_attack~., data=test)
+summary(dflm)
+#predicting using model from trainning dataset
+predictions <- predict(dflmt, test)
+#OOS R^2 
+R2_Score(y_pred = predictions, y_true = test$heart_attack)
+```
+```{r}
+print("We observe that the R2 for the testing subset, the R2 for the trainning subset and the R2 for the full model are almost the same. A high percentage (around 93% aprox) of explainability is brought in by the model. From the full model, we have 12 significant values vs 10 from the trainning subset model. If we use the model from the trainning subset to predict the test model, we obtain an oos r^2 of 0.91, meaning that the model used for the trainning subset brings a 0.91% of explainability to the testing data. Even if the r^2 drops for the testing data, it's expected to happen as the model was designed with other data.")
+```
+### Question 2
+## Explanation
+```{r}
+print("Cross-Validation (more specifically k-fold crossvalidation) in simple words, means shuffling the data, dividing data into n equal parts (for this example, lets assume dividing data into 10 parts), taking 1 bucket away, and with the 9 remaining buckets we estimate a model and use the predicted model to predict the testing data (the 1 bucket left out) and estimate the deviance of this one. We repeat the same steps (we only shuffle once at the beginning) for each different bucket (we get 10 estimates for out of sample r squared) and compute the final out of sample r squared (with the mean of all 10 r squares).")
+```
+## Potential problems
+```{r}
+print("With crossvalidation, the bucket left out is reinserted into the training dataset to compute the new model and so on and so force, because there's replacement, the training dataset is never 100% different from the previous model and it introduces bias. Moreover, by reducing the dataset for the 1 bucket left out, we introduce bias by underfitting. Additionally, having to run the process k times might have a long computation.")
+```
+
+### Question 3
+
+```{r}
+library(caret)
+train_control <- trainControl(method = "cv",
+                              number = 8)
+```
+
+```{r}
+model <- train(heart_attack ~., data = train,
+               method = "lm",
+               trControl = train_control)
+print(model)
+```
+```{r}
+print("INTERPRETATION: The out of sample R-Squared using Cross Validation is 87%. It's lower than the in-sample R-Squared, as expected (the in-sample R-Squared from the first model is higher as the R-Squared was computed with the real data and the OOS R-Squared from the K-fold CV model includes the deviance from the training dataset and to the test dataset.")
+```
+### Question 4
+
+##Explain LASSO
+```{r}
+print("Lasso regression is a regularization for model building-model selection. In simple words, that means that when selecting a model, we need to take into account deviance minimization (MSE for linear regression). To avoid overfitting and including many variables, we add a cost -tunnable lambda- to the model. If we increase lambda, the cost is higher and therefore less variables are included in the model, as for a variable to be included in the model must be signficant enough to overcome the cost. In other words, we must visualize the equation as two parts: the first part is the deviance and the second one the cost, which includes lambda. Both parts include the coefficients of the equation, and when the coefficients are not equal to 0 with the cost of lambda, then they are included in the model. If they are 0, they are not included in the model. We must arrive at an optimal lambda. To choose the optimal lambda, we try a sequence of lambda (almost 0 being the smallest) and for every lambda we know the betas and therefore which variables are included in the model at lambda x. For every single lambda we have x estimates as we do x different models with the cross validation method. With all the x MSE, we build a mean and choose the minimum mean of MSE.")
+```
+##Pros and Cons of Lasso
+```{r}
+print("The pros of Lasso include the following: as any regularization technique, it reduces overfitting. It performs feature selection, widely known, better than other model such as stepwise or backwards models, as it introduces a cost to the model and avoids automatic model selection. The cons of Lasso include the following: it ignores nonsignificant values where they might be important. It ignores the business context and might lead to erroneous conclusions")
+```
+
+### Question 5  
+## 1
+```{r}
+library(caret)
+library(ggplot2)
+my_x = data.matrix(train[, -17])
+my_y = train$heart_attack
+```
+
+```{r}
+library(glmnet)
+#perform k-fold cross-validation to find optimal lambda value
+cv_model <- cv.glmnet(my_x, my_y, alpha = 1)
+cv_model
+```
+
+```{r}
+# lambda_min
+lambda_min = cv_model$lambda.min
+lambda_min
+# lambda_1se
+lambda_1se = cv_model$lambda.1se
+lambda_1se
+plot(cv_model)
+```
+#Analyze last model
+```{r}
+best_model <- glmnet(my_x, my_y, alpha = 1, lambda = lambda_min)
+coef(best_model)
+modelse <- glmnet(my_x, my_y, alpha = 1, lambda = lambda_1se)
+coef(modelse)
+```
+```{r}
+print("INTERPRETATION: The two resulting models have eliminated many variables that were considered non significant. The minimum lambda has considered more variables than the biggest lambda with average OOS deviance of 1 std. dev away from the minimum, as expected (the bigger the lambda, the bigger the cost and the more difficult it is for variables to appear significant).")
+```
+
+## 2
+
+```{r}
+print("When comparing outputs, I'm not going to compare the outputs for models 1 and 3 vs model 5 based on the R squared, as the cut model will result on a lower r squared and not necessarily be worse. When comparing models 1 and 3, surprisingly the first model obtains a higher OOS R-squared (0.91 vs 0.87). As it's not significant, I'd still recommend to use cross-validation as the result will be more trustworthy than just fitting 1 trainning model on 1 test dataset. However, I'd choose the last cut model, as it avoids overfitting and removes many variables not considered significant in the model, having a more simplistic model that will perform better decisions out of the sample. To choose a model, we always have to take into account other context and business knowledge that is lacking on this exercise.")
+```
+
+### Question 6
+
+```{r}
+print("AIC is an OOS deviance estimator. If we get an independent sample n, the AIC tells you what your deviance would be for that sample. AIC is calculated through the deviance(log likelihood and number of parameters). AIC might be a bad approximation for big data (big n/df). For big data, we use AICc, a corrected formula that allows to calculate AIC for big data.")
+```
+
